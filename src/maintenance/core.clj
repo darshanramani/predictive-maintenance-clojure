@@ -45,14 +45,18 @@
   (let [eval (Evaluation. data)
         rand (Random. 42)]
     (.crossValidateModel eval model data 10 rand)
-    (println "----------------------------------")
-    (println model-name "using 10-fold Cross Validation")
-    (println "Accuracy (%):" (format "%.2f" (accuracy eval)))
-    (println "Confusion Matrix:")
-    (doseq [row (.confusionMatrix eval)]
-      (println (vec row)))
-    (println "----------------------------------")
-    (accuracy eval)))
+    {:model-name model-name
+     :accuracy (accuracy eval)
+     :confusion-matrix (mapv vec (.confusionMatrix eval))}))
+
+(defn print-result [result]
+  (println "----------------------------------")
+  (println (:model-name result) "using 10-fold Cross Validation")
+  (println "Accuracy (%):" (format "%.2f" (:accuracy result)))
+  (println "Confusion Matrix:")
+  (doseq [row (:confusion-matrix result)]
+    (println row))
+  (println "----------------------------------"))
 
 (defn show-tree-gui [^J48 tree-model]
   (let [graph-str (.graph tree-model)]
@@ -84,9 +88,22 @@
 
           random-forest (RandomForest.)
 
-          dt-acc (evaluate-model "Decision Tree (J48)" decision-tree step3)
-          rf-acc (evaluate-model "Random Forest" random-forest step3)]
+          ;; Concurrent execution starts here
+          dt-future (future
+                      (evaluate-model "Decision Tree (J48)" decision-tree step3))
 
+          rf-future (future
+                      (evaluate-model "Random Forest" random-forest step3))
+
+          ;; Wait for both results
+          dt-result @dt-future
+          rf-result @rf-future]
+
+      ;; Print clean results after both finish
+      (print-result dt-result)
+      (print-result rf-result)
+
+      ;; Build tree once on full dataset for GUI
       (.buildClassifier decision-tree step3)
 
       (println "Opening Decision Tree GUI...")
@@ -96,13 +113,17 @@
       (println decision-tree)
 
       (println "Final Model Comparison")
-      (println "Decision Tree Accuracy (%):" (format "%.2f" dt-acc))
-      (println "Random Forest Accuracy (%):" (format "%.2f" rf-acc))
+      (println "Decision Tree Accuracy (%):" (format "%.2f" (:accuracy dt-result)))
+      (println "Random Forest Accuracy (%):" (format "%.2f" (:accuracy rf-result)))
 
-      (if (> rf-acc dt-acc)
+      (cond
+        (> (:accuracy rf-result) (:accuracy dt-result))
         (println "Random Forest performed better than Decision Tree.")
-        (if (< rf-acc dt-acc)
-          (println "Decision Tree performed better than Random Forest.")
-          (println "Both models performed equally.")))
+
+        (< (:accuracy rf-result) (:accuracy dt-result))
+        (println "Decision Tree performed better than Random Forest.")
+
+        :else
+        (println "Both models performed equally."))
 
       (println "Done"))))
